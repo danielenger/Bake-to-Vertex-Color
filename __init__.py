@@ -15,25 +15,20 @@
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
-from bpy.types import Panel
-from bpy.types import Operator, PropertyGroup, UIList
-from bpy.props import IntProperty, StringProperty
-
-# from .bake import *
-# from .imagelist import *
-# from .panel import *
+from bpy.props import CollectionProperty, IntProperty, StringProperty
+from bpy.types import Operator, Panel, PropertyGroup, UIList
 
 bl_info = {
     "name": "Bake to Vertex Color",
     "description": "Transfer Image to selected Vertex Color in all selected Objects",
     "author": "Daniel Engler",
-    "version": (0, 0, 1),
+    "version": (0, 0, 2),
     "blender": (2, 80, 0),
     "location": "Shader Editor Toolbar",
     "category": "Node",
 }
 
-
+# TODO option: overwrite selected/add new vertex color
 # TODO average color over sample radius. useful?
 
 
@@ -54,7 +49,7 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
         img = bpy.data.images[img_index]
 
         if not img:
-            self.report({'ERROR'}, f"No image: {img.name}")
+            self.report({'ERROR'}, f"No image")
             return {'CANCELLED'}
 
         if not img.has_data:
@@ -66,11 +61,24 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
 
         for obj in context.selected_objects:
 
-            vert_index = obj.data.vertex_colors.active_index
-            vert_values = obj.data.vertex_colors[vert_index].data.values()
+            # Skip, if UV Map is missing
+            if len(obj.data.uv_layers) <= 0:
+                self.report({'INFO'}, f"UV Map missing on {obj.name}")
+                continue
+
+            # Skip, if Vertex Color max count reached
+            if len(obj.data.vertex_colors) == 8:
+                self.report({'INFO'}, f"Vertex Colors maximum count reached on {obj.name}")
+                continue
+
+            if len(obj.data.vertex_colors) == 0:
+                bpy.ops.mesh.vertex_color_add()
 
             uv_index = obj.data.uv_layers.active_index
             uv_layer = obj.data.uv_layers[uv_index]
+
+            vert_index = obj.data.vertex_colors.active_index
+            vert_values = obj.data.vertex_colors[vert_index].data.values()
 
             for i, vert in enumerate(uv_layer.data.values()):
 
@@ -79,18 +87,16 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
                 y = int(y * h) % h
                 p = 4 * (x + w * y)
 
-                color = [img.pixels[p],
-                         img.pixels[p+1],
-                         img.pixels[p+2],
-                         img.pixels[p+3]]
-
-                vert_values[i].color = color
+                vert_values[i].color = [img.pixels[p],
+                                        img.pixels[p + 1],
+                                        img.pixels[p + 2],
+                                        img.pixels[p + 3]]
 
         return {'FINISHED'}
 
 
 ########################################################################
-# LIST
+# IMAGE LIST
 ########################################################################
 
 
@@ -135,22 +141,8 @@ class BAKETOVERTEXCOLOR_ImageList_OT_Delete(Operator):
         return context.scene.baketovertexcolor_imagelist
 
     def execute(self, context):
-        baketovertexcolor_imagelist = context.scene.baketovertexcolor_imagelist.clear()
+        context.scene.baketovertexcolor_imagelist.clear()
         return{'FINISHED'}
-
-
-# class BAKETOVERTEXCOLOR_ImageList_OT_Reset(Operator):
-#     """Reset list to default values"""
-
-#     bl_idname = "baketovertexcolor_imagelist.reset"
-#     bl_label = "Update"
-
-#     def execute(self, context):
-#         if context.scene.baketovertexcolor_imagelist:
-#             bpy.ops.baketovertexcolor_imagelist.delete()
-#             bpy.ops.baketovertexcolor_imagelist.init()
-
-#         return{'FINISHED'}
 
 
 ########################################################################
@@ -191,12 +183,11 @@ class BAKETOVERTEXCOLOR_PT_Main(Panel):
                           context.scene, "baketovertexcolor_imagelist_index")
         row = col.row(align=True)
         row.operator('baketovertexcolor_imagelist.init')
-        # row.operator('baketovertexcolor_imagelist.reset')
         row.operator('baketovertexcolor_imagelist.delete')
 
 
 ########################################################################
-# REGISTER
+# MAIN & REGISTER
 ########################################################################
 
 classes = (
@@ -204,7 +195,6 @@ classes = (
     BAKETOVERTEXCOLOR_UL_ImageList,
     BAKETOVERTEXCOLOR_ImageList_OT_Init,
     BAKETOVERTEXCOLOR_ImageList_OT_Delete,
-    # BAKETOVERTEXCOLOR_ImageList_OT_Reset,
     BAKETOVERTEXCOLOR_PT_SubPanel,
     BAKETOVERTEXCOLOR_PT_Main,
     BAKETOVERTEXCOLOR_OT_bake
@@ -215,9 +205,9 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    bpy.types.Scene.baketovertexcolor_imagelist = bpy.props.CollectionProperty(
+    bpy.types.Scene.baketovertexcolor_imagelist = CollectionProperty(
         type=BAKETOVERTEXCOLOR_ImageListItem)
-    bpy.types.Scene.baketovertexcolor_imagelist_index = bpy.props.IntProperty(
+    bpy.types.Scene.baketovertexcolor_imagelist_index = IntProperty(
         name="Imagelist Index", default=0)
 
 
