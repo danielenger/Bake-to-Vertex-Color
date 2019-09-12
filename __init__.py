@@ -24,7 +24,7 @@ bl_info = {
     "name": "Bake to Vertex Color",
     "description": "Transfer Image to selected Vertex Color in all selected Objects",
     "author": "Daniel Engler",
-    "version": (0, 0, 3),
+    "version": (0, 0, 4),
     "blender": (2, 80, 0),
     "location": "Shader Editor Toolbar",
     "category": "Node",
@@ -75,6 +75,8 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
             self.report({'ERROR'}, f"No image data! Image Size = 0: {img.name}")
             return {'CANCELLED'}
 
+        pixels = np_array(img.pixels)
+
         for obj in context.selected_objects:
 
             # Skip, if UV Map is missing
@@ -95,8 +97,6 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
 
             vert_index = obj.data.vertex_colors.active_index
             vert_values = obj.data.vertex_colors[vert_index].data.values()
-
-            pixels = np_array(img.pixels)
 
             for i, vert in enumerate(uv_layer.data.values()):
                 vert_values[i].color = pick_color(vert, pixels, img_width, img_height)
