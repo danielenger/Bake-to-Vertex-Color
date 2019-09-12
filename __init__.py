@@ -17,12 +17,14 @@
 import bpy
 from bpy.props import CollectionProperty, IntProperty, StringProperty
 from bpy.types import Operator, Panel, PropertyGroup, UIList
+from numpy import array as np_array
+
 
 bl_info = {
     "name": "Bake to Vertex Color",
     "description": "Transfer Image to selected Vertex Color in all selected Objects",
     "author": "Daniel Engler",
-    "version": (0, 0, 2),
+    "version": (0, 0, 3),
     "blender": (2, 80, 0),
     "location": "Shader Editor Toolbar",
     "category": "Node",
@@ -35,6 +37,20 @@ bl_info = {
 ########################################################################
 # OPERATOR
 ########################################################################
+
+
+def pick_color(vert, pixels, img_width, img_height):
+    x, y = vert.uv
+    x = int(x * img_width) % img_width
+    y = int(y * img_height) % img_height
+    p = 4 * (x + img_width * y)
+
+    color = [pixels[p],
+             pixels[p + 1],
+             pixels[p + 2],
+             pixels[p + 3]]
+
+    return color
 
 
 class BAKETOVERTEXCOLOR_OT_bake(Operator):
@@ -52,12 +68,12 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
             self.report({'ERROR'}, f"No image")
             return {'CANCELLED'}
 
-        if not img.has_data:
-            self.report({'ERROR'}, f"No image data: {img.name}")
-            return {'CANCELLED'}
+        img_width = img.size[0]
+        img_height = img.size[1]
 
-        w = img.size[0]
-        h = img.size[1]
+        if img_width == 0 or img_height == 0:
+            self.report({'ERROR'}, f"No image data! Image Size = 0: {img.name}")
+            return {'CANCELLED'}
 
         for obj in context.selected_objects:
 
@@ -80,17 +96,10 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
             vert_index = obj.data.vertex_colors.active_index
             vert_values = obj.data.vertex_colors[vert_index].data.values()
 
+            pixels = np_array(img.pixels)
+
             for i, vert in enumerate(uv_layer.data.values()):
-
-                x, y = vert.uv
-                x = int(x * w) % w
-                y = int(y * h) % h
-                p = 4 * (x + w * y)
-
-                vert_values[i].color = [img.pixels[p],
-                                        img.pixels[p + 1],
-                                        img.pixels[p + 2],
-                                        img.pixels[p + 3]]
+                vert_values[i].color = pick_color(vert, pixels, img_width, img_height)
 
         return {'FINISHED'}
 
