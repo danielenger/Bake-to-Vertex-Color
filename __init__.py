@@ -25,7 +25,7 @@ bl_info = {
     "name": "Bake to Vertex Color",
     "description": "Transfer Image to selected Vertex Color in all selected Objects",
     "author": "Daniel Engler",
-    "version": (0, 0, 6),
+    "version": (0, 0, 7),
     "blender": (2, 80, 0),
     "location": "Shader Editor Toolbar",
     "category": "Node",
@@ -37,29 +37,32 @@ bl_info = {
 ########################################################################
 
 
-def pick_color(vert, pixels, img_width, img_height, sample_radius=1):
+def pick_color(vert, pixels, img_width, img_height, radius, diameter, mask=None, mask_sum=1):
 
     # x and y flipped
     x = int(vert.uv[1] * img_height) % img_height
     y = int(vert.uv[0] * img_width) % img_width
 
-    if sample_radius == 1:
+    if mask is None:
         return pixels[x, y]
     else:
-        r = sample_radius
-        d = 2 * r - 1  # diameter
-        x_top = x - r
-        y_top = y - r
+        x_top = (x + 1 - radius) % img_height
+        y_top = (y + 1 - radius) % img_width
 
-        color_sums = np.zeros(4)
+        # Slice of Pixel
+        pixel_slice = pixels[x_top:x_top + diameter, y_top:y_top + diameter, :]
 
-        for i in range(x_top, x_top + d):
-            for j in range(y_top, y_top + d):
-                i = i % img_height
-                j = j % img_width
-                color_sums = np.add(color_sums, pixels[i, j])
+        # apply mask
+        pixel_slice = mask * pixel_slice
 
-        color_avg = color_sums / (d**2)
+        color_avg = np.zeros(4)
+
+        color_avg[0] = pixel_slice[:, :, 0:1].sum()
+        color_avg[1] = pixel_slice[:, :, 1:2].sum()
+        color_avg[2] = pixel_slice[:, :, 2:3].sum()
+        color_avg[3] = pixel_slice[:, :, 3:4].sum()
+
+        color_avg = color_avg / mask_sum
 
         return color_avg
 
@@ -88,7 +91,51 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
             self.report({'ERROR'}, f"No image data! Image Size = 0: {img.name}")
             return {'CANCELLED'}
 
+        r = wm.baketovertexcolor_sample_radius
+        d = 2 * r - 1
+
+        if d - 1 > img_width or d - 1 > img_height:
+            self.report({'ERROR'}, "Sample radius too large")
+            return {'CANCELLED'}
+
         pixels = np.array(img.pixels).reshape(img_height, img_width, 4)
+
+        # Overdraw pixels:
+        pixels_bottom = pixels[0:2 * r, :, :]
+        pixels = np.concatenate((pixels, pixels_bottom), axis=0)
+        pixels_side = pixels[:, 0:2 * r, :]
+        pixels = np.concatenate((pixels, pixels_side), axis=1)
+
+        # Mask
+        if r == 1:
+            mask = None
+            mask_sum = 1
+        else:
+            if wm.baketovertexcolor_use_sample_circle:
+                # Circle mask:
+                # quarter piece for the 2D-mask
+                mask_2d = np.fromfunction(lambda i, j: i ** 2 + j ** 2, (r, r), dtype=int)
+
+                # condition r**2 - r gives better circle shape, than r**2
+                mask_2d[mask_2d >= r ** 2 - r] = 0
+                mask_2d[mask_2d > 1] = 1
+                mask_2d[0] = 1
+
+                # puzzle the full 2D-mask from the quarter piece
+                mask_2d = np.rot90(mask_2d, -2)
+                mask_2d = np.concatenate((mask_2d, np.fliplr(mask_2d[:, 0:r - 1])), axis=1)
+                mask_2d = np.concatenate((mask_2d, np.flipud(mask_2d[0:r - 1, :])), axis=0)
+
+                # divisor for average color
+                mask_sum = mask_2d.sum()
+
+                # the final mask is 3-dimentional for the 4 color channels
+                mask = np.zeros((d, d, 4))
+                mask[mask_2d > 0] = 1
+            else:
+                # Square mask:
+                mask = np.ones((d, d, 4))
+                mask_sum = d**2
 
         for obj in context.selected_objects:
 
@@ -114,10 +161,8 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
             vert_index = obj.data.vertex_colors.active_index
             vert_values = obj.data.vertex_colors[vert_index].data.values()
 
-            r = wm.baketovertexcolor_sample_radius
-
             for i, vert in enumerate(uv_layer.data.values()):
-                vert_values[i].color = pick_color(vert, pixels, img_width, img_height, sample_radius=r)
+                vert_values[i].color = pick_color(vert, pixels, img_width, img_height, r, d, mask=mask, mask_sum=mask_sum)
 
         return {'FINISHED'}
 
@@ -172,10 +217,9 @@ class BAKETOVERTEXCOLOR_PT_Main(Panel):
         wm = context.window_manager
 
         layout.operator('object.baketovertexcolor_bake')
-
         layout.prop(wm, 'baketovertexcolor_overwrite')
-
         layout.prop(wm, 'baketovertexcolor_sample_radius')
+        layout.prop(wm, 'baketovertexcolor_use_sample_circle')
 
         row = layout.row()
         row.template_icon_view(wm, "baketovertexcolor_previews")
@@ -217,6 +261,12 @@ def register():
         default=1,
         min=1,
         soft_max=5,
+    )
+
+    WindowManager.baketovertexcolor_use_sample_circle = BoolProperty(
+        name="Circle Sample Shape",
+        description="The shape of sampled colors is a circle (not a square)",
+        default=False
     )
 
     for cls in classes:
