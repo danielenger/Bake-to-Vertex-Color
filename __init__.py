@@ -25,8 +25,8 @@ bl_info = {
     "name": "Bake to Vertex Color",
     "description": "Transfer Image to selected Vertex Color in all selected Objects",
     "author": "Daniel Engler",
-    "version": (0, 0, 7),
-    "blender": (2, 80, 0),
+    "version": (0, 0, 8),
+    "blender": (2, 82, 0),
     "location": "Shader Editor Toolbar",
     "category": "Node",
 }
@@ -106,7 +106,7 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
         pixels_side = pixels[:, 0:2 * r, :]
         pixels = np.concatenate((pixels, pixels_side), axis=1)
 
-        # Mask
+        # Mask - defines the shape of the "color picker"
         if r == 1:
             mask = None
             mask_sum = 1
@@ -137,7 +137,15 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
                 mask = np.ones((d, d, 4))
                 mask_sum = d**2
 
-        for obj in context.selected_objects:
+        # to restore object selections
+        orig_active_object = context.active_object
+        orig_selected_object = context.selected_objects
+        for obj in orig_selected_object:
+            obj.select_set(False)
+
+        for obj in orig_selected_object:
+            # temp. set to active for bpy.ops.mesh.vertex_color_add()
+            bpy.context.view_layer.objects.active = obj
 
             # Skip, if UV Map is missing
             if len(obj.data.uv_layers) <= 0:
@@ -163,6 +171,13 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
 
             for i, vert in enumerate(uv_layer.data.values()):
                 vert_values[i].color = pick_color(vert, pixels, img_width, img_height, r, d, mask=mask, mask_sum=mask_sum)
+
+            obj.select_set(False)
+
+        # restore object selections
+        for obj in orig_selected_object:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = orig_active_object
 
         return {'FINISHED'}
 
