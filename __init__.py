@@ -144,6 +144,10 @@ class BAKETOVERTEXCOLOR_OT_bake(Operator):
             obj.select_set(False)
 
         for obj in orig_selected_object:
+
+            if obj.type != 'MESH':
+                continue
+
             # temp. set to active for bpy.ops.mesh.vertex_color_add()
             bpy.context.view_layer.objects.active = obj
 
